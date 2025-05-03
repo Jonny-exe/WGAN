@@ -10,9 +10,8 @@ import sys
 import numpy as np
 
 
-BATCH_SIZE = 128
-EPOCHS = 50
-ITERATIONS = 100
+BATCH_SIZE = 64
+EPOCHS = 150
 
 transform = transforms.Compose(
     [transforms.ToTensor()]
@@ -27,12 +26,18 @@ if len(sys.argv) > 1 and sys.argv[1] == "test":
 
     G.eval()
     
-    show_generated_images(G, 100)
+    show_generated_images(G, 100, EPOCHS)
     exit()
+elif len(sys.argv) > 1 and sys.argv[1] == "retrain":
+    G = Generator()  
+    G.load_state_dict(torch.load('G.pth'))
 
-
-     
-
+    D = Discriminator(k=BATCH_SIZE) 
+    D.load_state_dict(torch.load('D.pth'))
+    
+else:
+    D = Discriminator(k=BATCH_SIZE)
+    G = Generator()
 
 dataset1 = datasets.MNIST("./data", train=True, download=True, transform=transform)
 dataset2 = datasets.MNIST("./data", train=False, transform=transform)
@@ -42,8 +47,6 @@ train_loader = torch.utils.data.DataLoader(dataset1, batch_size=BATCH_SIZE, drop
 test_loader = torch.utils.data.DataLoader(dataset2, batch_size=BATCH_SIZE, drop_last=True, shuffle=True)
 
 
-D = Discriminator(k=BATCH_SIZE)
-G = Generator()
 
 
 # Best results yet, 0.0001 and 0.001
@@ -71,8 +74,19 @@ G = Generator()
 # Went back to 0.0008 for G LR.
 # Best resulsts yet. WIth ratio 2/5, 0.00006 and 0.005
 
-optim_d = torch.optim.Adam(D.parameters(), lr=0.0000075, betas=(0.5, 0.999))
-optim_g = torch.optim.Adam(G.parameters(), lr=0.00025, betas=(0.5, 0.999))
+## New best: 0.0005
+## Good nubmers, 0.0005, 0.001
+
+# LR_D = 0.0005 # Works but bad results
+# LR_G = 0.00025
+LR_D = 0.00025
+LR_G = 0.000125
+# LR_D = 0.000125
+# LR_G = 0.0000625
+print("LR: ", LR_D, LR_G)
+
+optim_d = torch.optim.RMSprop(D.parameters(), lr=LR_D)
+optim_g = torch.optim.RMSprop(G.parameters(), lr=LR_G)
 
 
 D.to("cuda")
@@ -90,78 +104,54 @@ for e in range(1, EPOCHS):
     print("EPOCH: ", e)
     i = 0
     if e % 5 == 0:
-        show_generated_images(G, 100)
-    for train_features, train_labels in iter(train_loader):
-        # print(train_features.size())
-        # print(train_labels.size(), train_labels)
-        train_features = train_features.to("cuda")
-        train_labels = train_labels.to("cuda")
+        show_generated_images(G, 100, e)
+        torch.save(D.state_dict(), 'models/D ' + '0' * (3 - len(str(e))) + str(e) + '.pth')
+        torch.save(G.state_dict(), 'models/G ' + '0' * (3 - len(str(e))) + str(e) + '.pth')
+    for real_image, _ in iter(train_loader):
+        real_image = real_image.to("cuda")
+        real_image = real_image * 2 - 1
 
         optim_d.zero_grad()
         optim_g.zero_grad()
-
-
 
         z = torch.randn(BATCH_SIZE, 100) # TODO this should be gaussian 
         z = z.to("cuda")
 
         loss = 0
 
-        # if (e % 2 == 1 or e <= 2) 
-        # if (e % 6 == 1) or (e % 6 == 3):
-        # print(i % 5 <= 1)
-        # if (e < 10 and i % 4 == 2) or (e % 3 == 0 and i > 10):
-        # if (e < 10 and i % 4 == 3) or (e >= 10 and i % 3 == 0):
-        # print(g_losses[-1], d_losses[-1])
-        # if i % 100 == 0:
-        #     print(g_losses[-1], d_losses[-1])
-        # if (g_losses[-1] < d_losses[-1]) or (e <= 1 and i % 5):
-        if i % 5 <= 3:
-            fake_image = G.forward(z).detach()
-            validity_fake = D.forward(fake_image)
-            train_features += (torch.randn(BATCH_SIZE, 1, 28, 28) * 0.1).to("cuda")
-
-            validity_real = D.forward(train_features)
-            #if i % 10 == 0:
-                #print("Loss fake: ", torch.mean(validity_fake).item(), torch.mean(validity_real).item())
-                # print("Loss real: ", 
-
-            # loss_fake = -torch.log(validity_fake)
-            # loss_real = torch.log(validity_real)
-
-            loss = -torch.mean(validity_real - validity_fake)
-
-            if i % 10 == 0:
-                print("Loss: ", loss.item())
-            loss.backward()
-            optim_d.step()
-
-
-            with torch.no_grad():
-                for param in D.parameters():
-                    param.clamp_(-0.01, 0.01)
-
-            d_losses.append(loss.item())
-        else:
+        if i % 5 == 0:
             fake_image = G.forward(z)
             validity = D.forward(fake_image)
 
-            #if i % 25 == 0:
-                #print("Generated: ", torch.mean(validity).item())
-
-            # print("out_g: ", out_g)
-            # print(torch.round(out_g))
-
-            # loss = torch.log(1 - validity) # Saturating
-            # loss = -torch.log(validity)
             loss = torch.mean(-validity)
             loss.backward()
-            optim_g.step()
 
+            optim_g.step()
             g_losses.append(loss.item())
+
+        fake_image = G.forward(z).detach()
+        validity_fake = D.forward(fake_image)
+        validity_real = D.forward(real_image)
+
+        loss = -torch.mean(validity_real - validity_fake)
+
+        if i % 50 == 0:
+            print("Loss: ", loss.item())
+            # print("Val: ", validity_fake, validity_real )
+
+        loss.backward()
+        optim_d.step()
+
+        with torch.no_grad():
+            for param in D.parameters():
+                param.clamp_(-0.0075, 0.0075)
+                # param.clamp_(-0.01, 0.01)
+
+        d_losses.append(loss.item())
         i += 1
     print(i)
-    print(np.mean(d_losses[:-10]), np.mean(g_losses[:-10]))
+    print(np.mean(d_losses[:-100]), np.mean(g_losses[:-100]))
+
         
 
 
@@ -170,7 +160,7 @@ for e in range(1, EPOCHS):
 print("Finished")
 
 
-show_generated_images(G, 100)
+show_generated_images(G, 100, EPOCHS)
 
 torch.save(D.state_dict(), 'D.pth')
 torch.save(G.state_dict(), 'G.pth')
