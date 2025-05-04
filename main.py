@@ -11,7 +11,8 @@ import numpy as np
 
 
 BATCH_SIZE = 64
-EPOCHS = 150
+epoch = 1
+EPOCHS = 400
 
 transform = transforms.Compose(
     [transforms.ToTensor()]
@@ -22,13 +23,20 @@ print(sys.argv)
 if len(sys.argv) > 1 and sys.argv[1] == "test":
     G = Generator()  # Create the model architecture
 
-    G.load_state_dict(torch.load('G.pth'))  # Load saved weights
+    if len(sys.argv) > 2:
+        G.load_state_dict(torch.load(sys.argv[2]))  # Load saved weights
+        
+    else:
+        G.load_state_dict(torch.load('G.pth'))  # Load saved weights
 
     G.eval()
     
     show_generated_images(G, 100, EPOCHS)
     exit()
 elif len(sys.argv) > 1 and sys.argv[1] == "retrain":
+    if len(sys.argv) > 1:
+        epoch = int(sys.argv[2])
+        print("Epochs: ", EPOCHS)
     G = Generator()  
     G.load_state_dict(torch.load('G.pth'))
 
@@ -79,8 +87,10 @@ test_loader = torch.utils.data.DataLoader(dataset2, batch_size=BATCH_SIZE, drop_
 
 # LR_D = 0.0005 # Works but bad results
 # LR_G = 0.00025
-LR_D = 0.00025
-LR_G = 0.000125
+LR_D = 0.00018
+LR_G = 0.00018
+# LR_D = 0.011
+# LR_G = 0.0105
 # LR_D = 0.000125
 # LR_G = 0.0000625
 print("LR: ", LR_D, LR_G)
@@ -100,9 +110,20 @@ fig, ax = plt.subplots(figsize=(10, 5))
 plt.ion()    # <-- TURN ON INTERACTIVE MODE (Important!)
 plt.show() 
 
-for e in range(1, EPOCHS):
+for e in range(epoch, EPOCHS):
     print("EPOCH: ", e)
     i = 0
+
+    if(e == 50):
+        for group in optim_g.param_groups:
+            print("LR: ", group['lr'])
+            group['lr'] = 0.0001
+            
+        for group in optim_d.param_groups:
+            print("LR: ", group['lr'])
+            group['lr'] = 0.0002
+
+
     if e % 5 == 0:
         show_generated_images(G, 100, e)
         torch.save(D.state_dict(), 'models/D ' + '0' * (3 - len(str(e))) + str(e) + '.pth')
@@ -114,6 +135,7 @@ for e in range(1, EPOCHS):
         optim_d.zero_grad()
         optim_g.zero_grad()
 
+        # z = torch.randn(BATCH_SIZE, 100) # TODO this should be gaussian 
         z = torch.randn(BATCH_SIZE, 100) # TODO this should be gaussian 
         z = z.to("cuda")
 
@@ -144,8 +166,8 @@ for e in range(1, EPOCHS):
 
         with torch.no_grad():
             for param in D.parameters():
-                param.clamp_(-0.0075, 0.0075)
-                # param.clamp_(-0.01, 0.01)
+                # param.clamp_(-0.0075, 0.0075)
+                param.clamp_(-0.015, 0.015)
 
         d_losses.append(loss.item())
         i += 1

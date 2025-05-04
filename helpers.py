@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 
-def show_generated_images(generator, noise_dim, device='cpu', num_images=16):
+def show_generated_images(generator, noise_dim, epochs, device='cpu', num_images=16):
     generator.eval()  # Set to eval mode
     generator.to(device)
     plt.ioff()
@@ -19,10 +19,11 @@ def show_generated_images(generator, noise_dim, device='cpu', num_images=16):
     grid_size = int(num_images**0.5)
     fig, axes = plt.subplots(grid_size, grid_size, figsize=(grid_size, grid_size))
     for i, ax in enumerate(axes.flatten()):
-        ax.imshow(fake_images[i][0], cmap='gray', vmin=0, vmax=1)
+        ax.imshow(fake_images[i][0], cmap='gray', vmin=-1, vmax=1)
         ax.axis('off')
     plt.tight_layout()
     plt.show()
+    plt.savefig('out_' + "0" * (3-len(str(epochs)))+ str(epochs) + '.png')
     plt.savefig('out.png')
 
     generator.train()  # Set to eval mode
@@ -59,3 +60,5 @@ def plot_gan_losses(g_losses, d_losses, ax, fig):
     print("Draw ")
     fig.canvas.draw()  # Explicitly ask the figure to redraw
     fig.canvas.flush_events()  # Force GUI to update
+    fig.savefig('graph.png')
+
